@@ -1,14 +1,14 @@
-#define BLYNK_TEMPLATE_ID "TMPL64RJEo8wl"
-#define BLYNK_TEMPLATE_NAME "Alerting system"
-#define BLYNK_AUTH_TOKEN "E47GXcMGPAAuiJmacc2wrlSUWQW7sF-h"
+#define BLYNK_TEMPLATE_ID "TMPL65uqZT9wX"
+#define BLYNK_TEMPLATE_NAME "report system"
+#define BLYNK_AUTH_TOKEN "bI5pSdPO3xxSZ5rmHWUAVOaIMcN2QMC2"
 
+#include <Arduino.h>
 #include <WiFi.h>
 #include <Keypad.h>
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 #include <BlynkSimpleEsp32.h>
 #include <ThingSpeak.h>
-
 
 // WiFi Credentials 
 char ssid[] = "Wokwi-GUEST";
@@ -17,7 +17,6 @@ char pass[] = ""; // No password needed for Wokwi-GUEST
 // Thingspeak constants
 const int myChannelNumber =2973762 ;
 const char* myApiKey = "73S6VMG4SLJMDTXH";
-const char* server = "api.thingspeak.com";
 WiFiClient client;
 
 // LCD setup
@@ -38,535 +37,274 @@ Keypad keypad = Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
 // Panic alert pins
 const int buzzerPin = 25;
 const int redLEDPin = 26;
-const int panicButtonPin = 32;
+const int panicButtonPin = 35;
 const int buttonPin = 34;
 int state = 0;
 int i = 0;
 
 // Voilence types declaration
 const char* violenceTypes[] = {
-    "1.Physical", "2.Sexual",
-    "3.Emotion", "4.Digital",
-    "5.Stalking/IPV"
-  };
+  "1.Physical", "2.Sexual", "3.Emotion", "4.Digital", "5.Stalking/IPV"
+};
 
 // Locations declaration
 const char* locations[] = {
-  "1.Hospital PP",
-  "2.Tmn Free Schl",
-  "3.Bus Terminal",
-  "4.USM"
+  "1.Hospital PP", "2.Tmn Free Schl", "3.Bus Terminal", "4.USM"
 };
 
+// Alerts declaration
+const char* blynkEvents[] = {
+  "physical_alert", "sexual_alert", "emotional_alert", "digital_alert", "stalking_alert"
+};
 
-void setup() {
-  // Start Blynk connection
-  Blynk.begin(BLYNK_AUTH_TOKEN, ssid, pass);
-  WiFi.begin(ssid, pass);
-  WiFi.mode(WIFI_STA);
-  ThingSpeak.begin(client);
-  
-  Serial.begin(115200);
-  lcd.init();
-  lcd.backlight();
+//Blynk messages declaration
+const char* blynkMsg[] = {
+  "Physical violence alert triggered!", "Sexual violence alert triggered!",
+  "Emotional violence alert triggered!", "Digital violence alert triggered!",
+  "Stalking violence alert triggered!"
+};
 
-  pinMode(panicButtonPin, INPUT_PULLUP);
-  pinMode(buttonPin, INPUT_PULLUP);
-  pinMode(buzzerPin, OUTPUT);
-  pinMode(redLEDPin, OUTPUT);
+const char* responsePages[][4] = {
+  { // Physical (index 0)
+    "Alert sent to\nlocal emergency",
+    "services.\n ",
+    "You will\nbe safe!",
+    ""
+  },
+  { // Sexual (index 1)
+    "Alert sent to\nKPWKM. Stay safe",
+    "You're not alone.\nHelp is coming.",
+    "", ""
+  },
+  { // Emotional (index 2)
+    "Call WAO now:\n03 3000 8858",
+    "You're not alone.\nHelp is here.",
+    "", ""
+  },
+  { // Digital (index 3)
+    "Alert sent to\nCCID",
+    "Tips: Change\npasswords often",
+    "Enable 2-Factor\nAuthentication",
+    "& avoid\nsuspicious links"
+  },
+  { // Stalking/IPV (index 4)
+    "Dial 999 or call\ntrusted contact",
+    "Need shelter?\nCall 03-7770 9999",
+    "Stay calm.\nYou're not alone.",
+    ""
+  }
+};
 
-  digitalWrite(buzzerPin, LOW);
-  digitalWrite(redLEDPin, LOW);
-
-}
-
-
-void showPage(int p) {
+void lcdPrint(const char* line1, const char* line2 = "", int delayMs = 0) {
   lcd.clear();
   lcd.setCursor(0, 0);
-  
-  if (p >= 0 && p < 5) {
-    lcd.print(violenceTypes[p]);  // Show one type per page
-    lcd.setCursor(0, 1);
-    lcd.print("B=Next A=Prev");
-  }
+  lcd.print(line1);
+  lcd.setCursor(0, 1);
+  lcd.print(line2);
+  if (delayMs) delay(delayMs);
 }
 
+bool checkExitKey(char key) {
+  if (key == 'D') {
+    lcdPrint("Exiting...", "", 1000);
+    lcd.clear();
+    i = 0;
+    state = 0;
+    return true;
+  }
+  return false;
+}
 
 void panicMode() {
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("! PANIC ALERT !");
-  lcd.setCursor(0, 1);
-  lcd.print("Help is OTW!");
-
+  lcdPrint("! PANIC ALERT !", "Help is OTW!");
   digitalWrite(buzzerPin, HIGH);
   digitalWrite(redLEDPin, HIGH);
-
-  // Stay in this loop until someone manually resets via pushbutton
   while (true) {
-    
-    // Check if pushbutton (buttonPin) is pressed
     if (digitalRead(buttonPin) == LOW) {
-      delay(200); // debounce
+      delay(200);
       digitalWrite(buzzerPin, LOW);
       digitalWrite(redLEDPin, LOW);
-
-      lcd.clear();
-      lcd.print("System reset...");
-      delay(2000);
+      lcdPrint("System reset...", "", 2000);
       lcd.clear();
       i = 0;
       state = 0;
-      return; // Exit panic mode
+      return;
     }
     delay(100);
   }
 }
 
-bool checkExitKey(char key) {
-  if (key == 'D') {
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print("Exiting...");
-    delay(1000);
-    lcd.clear();
-    i = 0;
-    state = 0;
-    return true; // exit requested
+String getFormattedInput(const char* prompt, String placeholder) {
+  lcdPrint(prompt, placeholder.c_str());
+  int nextIndex = 0;
+  while (true) {
+    char key = keypad.getKey();
+    if (!key) continue;
+    if (checkExitKey(key)) return "";
+    if (key >= '0' && key <= '9') {
+      while (nextIndex < (int)placeholder.length() && placeholder[nextIndex] != 'x') nextIndex++;
+      if (nextIndex < (int)placeholder.length()) {
+        placeholder[nextIndex++] = key;
+        lcd.setCursor(0, 1); 
+        lcd.print(placeholder);
+      }
+    } else if (key == '*') {
+      if (nextIndex > 0) {
+        nextIndex--;
+        while (nextIndex > 0 && placeholder[nextIndex] != 'x' &&
+               (placeholder[nextIndex] == '-' || placeholder[nextIndex] == '.')) nextIndex--;
+        if (placeholder[nextIndex] != '-' && placeholder[nextIndex] != '.') {
+          placeholder[nextIndex] = 'x';
+          lcd.setCursor(0, 1); 
+          lcd.print(placeholder);
+        }
+      }
+    } else if (key == '#') {
+      if (placeholder.indexOf('x') == -1) {
+        lcd.clear();
+        lcd.setCursor(0, 0);
+        lcd.print("Entered:");
+        lcd.setCursor(0, 1);
+        lcd.print(placeholder);
+        Serial.println(String(prompt) + ": " + placeholder);
+        delay(1000);
+        return placeholder;
+      } else {
+        lcdPrint("Incomplete", "input", 1500);
+        lcdPrint(prompt, placeholder.c_str());
+      }
+    } else {
+      lcdPrint("Invalid input", "", 1500);
+      lcdPrint(prompt, placeholder.c_str());
+    }
   }
-  return false;
 }
 
+int selectFromList(const char* items[], int count) {
+  int page = 0;
+  lcd.clear();
+  lcd.print(items[page]);
+  lcd.setCursor(0, 1);
+  lcd.print("B=Next A=Prev");
+  while (true) {
+    char key = keypad.getKey();
+    if (!key) continue;
+    if (checkExitKey(key)) return -1;
+    if (key == 'B') { page = (page + 1) % count; }
+    else if (key == 'A') { page = (page - 1 + count) % count; }
+    else if (key >= '1' && key <= ('0' + count)) {
+      int idx = key - '1';
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("Selected:");
+      lcd.setCursor(0, 1);
+      lcd.print(items[idx]);
+      Serial.println("Selected: " + String(items[idx]));
+      delay(2000);
+      return idx;
+    } else {
+      lcdPrint("Invalid input", "", 1500);
+    }
+    lcd.clear();
+    lcd.print(items[page]);
+    lcd.setCursor(0, 1);
+    lcd.print("B=Next A=Prev");
+  }
+}
+
+void setup() {
+  Blynk.begin(BLYNK_AUTH_TOKEN, ssid, pass);
+  WiFi.begin(ssid, pass);
+  WiFi.mode(WIFI_STA);
+  ThingSpeak.begin(client);
+  Serial.begin(115200);
+  lcd.init();
+  lcd.backlight();
+  pinMode(panicButtonPin, INPUT_PULLUP);
+  pinMode(buttonPin, INPUT_PULLUP);
+  pinMode(buzzerPin, OUTPUT);
+  pinMode(redLEDPin, OUTPUT);
+  digitalWrite(buzzerPin, LOW);
+  digitalWrite(redLEDPin, LOW);
+}
 
 void loop() {
   Blynk.run();
   static bool panicTriggered = false;
 
-  if (i == 0) {
-    Serial.println("--------------------------");
-    Serial.println("System initialised...");
-    i++;
-  }
+  if (i == 0) { Serial.println("System initialised..."); i++; }
 
+  // Panic check
   if (digitalRead(panicButtonPin) == LOW && !panicTriggered) {
-    delay(50); // debounce
+    delay(50);
     if (digitalRead(panicButtonPin) == LOW) {
       panicTriggered = true;
-      panicMode();  // this will wait for reset from buttonPin (34)
+      panicMode();
       panicTriggered = false;
       return;
     }
   }
-  if (state == 0) //waiting for user detection
-  {
+
+  if (state == 0) {
     if (digitalRead(buttonPin) == LOW) {
-      delay(100);  // Debounce
-      lcd.clear();
-      lcd.setCursor(0, 0);
-      lcd.print("Welcome to GBV");
-      lcd.setCursor(0, 1);
-      lcd.print("Reporting System");
-      delay(2000);
+      delay(100);
+      lcdPrint("Welcome to GBV", "Reporting System", 2000);
       state = 1;
     }
-  } else if (state == 1) // consolation
-  {
+
+  } else if (state == 1) {
+    lcdPrint("We are here", "to help you", 2000);
+    state = 2;
+
+  } else if (state == 2) {
+    String date = getFormattedInput("Enter Date:", "xx-xx-xxxx");
+    if (date == "") return;
+    state = 3;
+
+  } else if (state == 3) {
+    String t = getFormattedInput("Enter Time:", "xx.xx");
+    if (t == "") return;
+    ThingSpeak.setField(2, t.toFloat());
+    state = 4;
+
+  } else if (state == 4) {
+    lcdPrint("Select Location", "", 1000);
+    int loc = selectFromList(locations, 4);
+    if (loc < 0) return;
+    ThingSpeak.setField(1, loc);
+    state = 5;
+
+  } else if (state == 5) {
+    lcdPrint("Please select", "your type of", 1000);
+    lcdPrint("violence...", "", 1500);
+    int vtype = selectFromList(violenceTypes, 5);
+    if (vtype < 0) return;
+
     lcd.clear();
     lcd.setCursor(0, 0);
-    lcd.print("We are here");
+    lcd.print("Violence Type:");
     lcd.setCursor(0, 1);
-    lcd.print("to help you");
-    delay(2000);
-    state = 2; 
-  } 
-  else if (state == 2) // Date input
-  {
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print("Enter Date:");
-  
-    String dateInput = "xx-xx-xxxx"; // Placeholder
-    lcd.setCursor(0, 1);
-    lcd.print(dateInput);
+    lcd.print(violenceTypes[vtype]);
+    Serial.println("Violence Type: " + String(violenceTypes[vtype]));
 
-    int nextIndex = 0; // Tracks which 'x' to replace next
+    Blynk.logEvent(blynkEvents[vtype], blynkMsg[vtype]);
+    delay(3000);
 
-    while (true) {
-      char key = keypad.getKey();
-      if (key) {
-        if (checkExitKey(key)) return;
-        // Only accept digits and control keys
-        if (key >= '0' && key <= '9') {
-          if (nextIndex < dateInput.length()) {
-            // Find next 'x' to replace
-            while (nextIndex < dateInput.length() && dateInput[nextIndex] != 'x') {
-              nextIndex++;  // skip dashes '-'
-            }
-            if (nextIndex < dateInput.length()) {
-              dateInput[nextIndex] = key;
-              lcd.setCursor(0, 1);
-              lcd.print(dateInput);
-              nextIndex++;
-            }
-          }
-        }
-        else if (key == '*') {  // Backspace
-          // Move back to previous entered digit and replace it with 'x'
-          if (nextIndex > 0) {
-            nextIndex--;
-            while (nextIndex > 0 && dateInput[nextIndex] != 'x' && dateInput[nextIndex] == '-') {
-              nextIndex--;
-            }
-            if (dateInput[nextIndex] != '-') {
-              dateInput[nextIndex] = 'x';
-              lcd.setCursor(0, 1);
-              lcd.print(dateInput);
-            }
-          }
-        }
-        else if (key == '#') {  // Submit
-          // Check if all 'x' are replaced or handle partial input as you wish
-          if (dateInput.indexOf('x') == -1) {
-            lcd.clear();
-            lcd.setCursor(0, 0);
-            lcd.print("Date Entered:");
-            lcd.setCursor(0, 1);
-            lcd.print(dateInput);
-            Serial.println("Date Entered: " + dateInput);
-            delay(1000);
-            state = 3;
-            return;
-          } else {
-            lcd.clear();
-            lcd.setCursor(0, 0);
-            lcd.print("Incomplete");
-            lcd.setCursor(0, 1);
-            lcd.print("date input");
-            delay(1500);
-            lcd.setCursor(0, 1);
-            lcd.print(dateInput);
-          }
-        }
-        else if (key == 'A' || key == 'B' || key == 'C' || key == 'D') {
-          lcd.clear();
-          lcd.setCursor(0, 0);
-          lcd.print("Invalid input");
-          delay(1500);
-          lcd.clear();
-          lcd.setCursor(0, 0);
-          lcd.print("Enter Date:");
-          lcd.setCursor(0, 1);
-          lcd.print(dateInput); 
-        }
-      }
+    int x = ThingSpeak.writeFields(myChannelNumber, myApiKey);
+    Serial.println(x == 200 ? "Data pushed successfully!" : "Push error, retrying...");
+
+    // Show response pages from data table
+    for (int p = 0; p < 4; p++) {
+      if (strlen(responsePages[vtype][p]) == 0) break;
+      String page = String(responsePages[vtype][p]);
+      int sep = page.indexOf('\n');
+      lcdPrint(page.substring(0, sep).c_str(), page.substring(sep + 1).c_str(), 2500);
     }
-  }
-  else if (state == 3) // Time input
-  {
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print("Enter Time:");
 
-    String timeInput = "xx.xx"; // Placeholder for time
-    lcd.setCursor(0, 1);
-    lcd.print(timeInput);
-
-    int nextIndex = 0;
-
-    while (true) {
-      char key = keypad.getKey();
-      if (key) {
-        if (checkExitKey(key)) return;
-        if (key >= '0' && key <= '9') {
-          while (nextIndex < timeInput.length() && timeInput[nextIndex] != 'x') {
-            nextIndex++;  // Skip colon
-          }
-          if (nextIndex < timeInput.length()) {
-            timeInput[nextIndex] = key;
-            lcd.setCursor(0, 1);
-            lcd.print(timeInput);
-            nextIndex++;
-          }
-        }
-        else if (key == '*') { // Backspace
-          if (nextIndex > 0) {
-            nextIndex--;
-            while (nextIndex > 0 && timeInput[nextIndex] == ':') {
-              nextIndex--;
-            }
-            if (timeInput[nextIndex] != '.') {
-              timeInput[nextIndex] = 'x';
-              lcd.setCursor(0, 1);
-              lcd.print(timeInput);
-            }
-          }
-        }
-        else if (key == '#') { // Submit
-          if (timeInput.indexOf('x') == -1) {
-            lcd.clear();
-            lcd.setCursor(0, 0);
-            lcd.print("Time Entered:");
-            lcd.setCursor(0, 1);
-            lcd.print(timeInput);
-            Serial.println("Time Entered: " + timeInput);
-            float timenum = timeInput.toFloat(); // change time to float
-            ThingSpeak.setField(2, timenum); //set to thingspeak field 2
-            delay(3000); // Show confirmation for 3 seconds
-            state = 4;   // Proceed to next state (if any)
-            return;
-          } else {
-            lcd.clear();
-            lcd.setCursor(0, 0);
-            lcd.print("Incomplete");
-            lcd.setCursor(0, 1);
-            lcd.print("time input");
-            delay(1500);
-            lcd.clear();
-            lcd.setCursor(0, 0);
-            lcd.print("Enter Time:");
-            lcd.setCursor(0, 1);
-            lcd.print(timeInput);
-          }
-        }
-        else if (key == 'A' || key == 'B' || key == 'C' || key == 'D') {
-          lcd.clear();
-          lcd.setCursor(0, 0);
-          lcd.print("Invalid input");
-          delay(1500);
-          lcd.clear();
-          lcd.setCursor(0, 0);
-          lcd.print("Enter Time:");
-          lcd.setCursor(0, 1);
-          lcd.print(timeInput);
-        }
-      }
-    }
-  }
-  else if (state == 4) { // Location Selection
-    int page = 0;
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print("Select Location");
     delay(1000);
-    lcd.clear();
-    lcd.print(locations[page]);
-    lcd.setCursor(0, 1);
-    lcd.print("B=Next A=Prev");
-
-    while (true) {
-      char key = keypad.getKey();
-      if (key) {
-        if (checkExitKey(key)) return;
-        if (key == 'B') {
-          page = (page + 1) % 4;
-        } else if (key == 'A') {
-          page = (page - 1 + 4) % 4;
-        } else if (key >= '1' && key <= '4') {
-          int index = key - '1';
-          lcd.clear();
-          lcd.setCursor(0, 0);
-          lcd.print("Location:");
-          lcd.setCursor(0, 1);
-          lcd.print(locations[index]);
-          Serial.println("Location: " + String(locations[index]));
-          int locanum = index++; //declare location
-          ThingSpeak.setField(1, locanum); //set to thingspeak field 1
-          delay(3000);
-          state = 5;
-          return;
-        } else {
-          lcd.clear();
-          lcd.setCursor(0, 0);
-          lcd.print("Invalid input");
-          delay(1500);
-        }
-        // Refresh current page
-        lcd.clear();
-        lcd.print(locations[page]);
-        lcd.setCursor(0, 1);
-        lcd.print("B=Next A=Prev");
-      }
-    }
-  }
-
-  else if (state == 5) // Violence type input with paging
-  {
-    int page = 0;
-    char selection = '\0';
-    // Show the initial message
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print("Please select");
-    lcd.setCursor(0, 1);
-    lcd.print("your type of");
-    delay(1000);
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print("violence...");
-    delay(1500);
-    showPage(page);
-
-    while (true) {
-      char key = keypad.getKey();
-      if (key) {
-        if (checkExitKey(key)) return;
-        if (key == 'B') {
-          page = (page + 1) % 5;
-          showPage(page);
-        }else if (key == 'A') {  // Previous page
-          page = (page - 1 + 5) % 5;  // ensures wraparound
-          showPage(page);
-        }else if (key >= '1' && key <= '5') {
-        selection = key;
-        lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("Violence Type:");
-  lcd.setCursor(0, 1);
-  lcd.print(violenceTypes[selection - '1']);
-  Serial.println("Violence Type: " + String(violenceTypes[selection - '1']));
-
-  // 🔔 Trigger Blynk Virtual Pins based on type
-  switch (selection) {
-    case '1': // Physical
-      Blynk.logEvent("physical_alert", "Physical violence alert triggered!");
-      break;
-    case '2': // Sexual
-      Blynk.logEvent("sexual_alert", "Sexual violence alert triggered!");
-      break;
-    case '3': // Emotional
-      Blynk.logEvent("emotional_alert", "Emotional violence alert triggered!");
-      break;
-    case '4': // Digital
-      Blynk.logEvent("digital_alert", "Digital violence alert triggered!");
-      break;
-    case '5': // Stalking/IPV
-      Blynk.logEvent("stalking_alert", "Stalking violence alert triggered!");
-      break;
-  }
-  delay(3000);
-
-  int x = ThingSpeak.writeFields(myChannelNumber,myApiKey); // write data to thingspeak
-    
-  if (x == 200) {
-    Serial.println("Data pushed sucessfully !!");
-  } else {
-    Serial.println("Push error, retrying ... ");
-  }
-
-  lcd.clear();
-  switch (selection) {
-    case '1': // Physical
-      lcd.setCursor(0, 0);
-      lcd.print("Alert sent to");
-      lcd.setCursor(0, 1);
-      lcd.print("local emergency");
-      delay(2000);
-      lcd.clear();
-      lcd.setCursor(0, 0);
-      lcd.print("services.");
-      delay(1500);
-      lcd.clear();
-      lcd.setCursor(0, 0);
-      lcd.print("You will");
-      lcd.setCursor(0, 1);
-      lcd.print("be safe!");
-      break;
-
-    case '2': // Sexual
-      lcd.setCursor(0, 0);
-      lcd.print("Alert sent to");
-      lcd.setCursor(0, 1);
-      lcd.print("KPWKM. Stay safe");
-      delay(1500);
-      lcd.clear();
-      lcd.setCursor(0, 0);
-      lcd.print("You're not alone.");
-      lcd.setCursor(0, 1);
-      lcd.print("Help is coming.");
-      break;
-
-    case '3': // Emotional
-      lcd.setCursor(0, 0);
-      lcd.print("Call WAO now:");
-      lcd.setCursor(0, 1);
-      lcd.print("03 3000 8858");
-      delay(4000);
-      lcd.clear();
-      lcd.print("You're not alone.");
-      lcd.setCursor(0, 1);
-      lcd.print("Help is here.");
-      break;
-
-    case '4': // Digital
-      lcd.setCursor(0, 0);
-      lcd.print("Alert sent to");
-      lcd.setCursor(0, 1);
-      lcd.print("CCID");
-      delay(1500);
-      lcd.clear();
-      lcd.setCursor(0, 0);
-      lcd.print("Don't worry!");
-      delay(1500);
-      lcd.clear();
-      lcd.setCursor(0, 0);
-      lcd.print("Tips: Change");
-      lcd.setCursor(0, 1);
-      lcd.print("passwords often");
-      delay(3000);
-      lcd.clear();
-      lcd.setCursor(0, 0);
-      lcd.print("Enable 2-Factor");
-      lcd.setCursor(0, 1);
-      lcd.print("Authentication");
-      delay(3000);
-      lcd.clear();
-      lcd.setCursor(0, 0);
-      lcd.print("& avoid");
-      lcd.setCursor(0, 1);
-      lcd.print("suspicious links");
-      delay(1500);
-      lcd.clear();
-      lcd.setCursor(0, 0);
-      lcd.print(" or emails.");
-      break;
-
-    case '5': // Stalking/IPV
-      lcd.setCursor(0, 0);
-      lcd.print("Dial 999 or call");
-      lcd.setCursor(0, 1);
-      lcd.print("trusted contact");
-      delay(3000);
-      lcd.clear();
-      lcd.setCursor(0, 0);
-      lcd.print("Need shelter?");
-      lcd.setCursor(0, 1);
-      lcd.print("Call 03-7770 9999");
-      delay(4000);
-      lcd.clear();
-      lcd.setCursor(0, 0);
-      lcd.print("Stay calm.");
-      lcd.setCursor(0, 1);
-      lcd.print("You're not alone.");
-      break;
-  }
-      delay(4000);  // Pause before moving to next state
-      lcd.clear();
-      lcd.setCursor(0, 0);
-      lcd.print("System reset...");
-      delay(1500);
-      lcd.clear();
-      i = 0;
-      state = 0;
-      return;
-  }else {
-          lcd.clear();
-          lcd.setCursor(0, 0);
-          lcd.print("Invalid input");
-          delay(1500);
-          showPage(page);
-        }
-      }
-    }
+    lcdPrint("System reset...", "", 1500);
+    lcd.clear(); 
+    i = 0; 
+    state = 0;
   }
 }
